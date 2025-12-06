@@ -1,8 +1,11 @@
+mod types;
+
 use crate::generators::{Generator, GeneratorConfig};
 use crate::types::{NestedType, ObjectType, Schema, SchemaType};
-use crate::utils::sanitize_identifier;
 use anyhow::Result;
 use std::collections::HashMap;
+
+use types::{format_field_name, generate_type};
 
 pub struct ZodGenerator;
 
@@ -11,106 +14,30 @@ impl ZodGenerator {
         Self
     }
 
-    fn generate_type(
-        &self,
-        schema_type: &SchemaType,
-        indent: &str,
-        type_refs: &HashMap<String, String>,
-    ) -> String {
-        match schema_type {
-            SchemaType::String => "z.string()".to_string(),
-            SchemaType::Number => "z.number()".to_string(),
-            SchemaType::Integer => "z.number().int()".to_string(),
-            SchemaType::Boolean => "z.boolean()".to_string(),
-            SchemaType::Null => "z.null()".to_string(),
-            SchemaType::Any => "z.unknown()".to_string(),
-            SchemaType::Array(inner) => {
-                let inner_type = self.generate_type(inner, indent, type_refs);
-                format!("z.array({})", inner_type)
-            }
-            SchemaType::Optional(inner) => {
-                let inner_type = self.generate_type(inner, indent, type_refs);
-                format!("{}.optional()", inner_type)
-            }
-            SchemaType::Union(types) => {
-                if types.len() == 1 {
-                    return self.generate_type(&types[0], indent, type_refs);
-                }
-                let type_strings: Vec<String> = types
-                    .iter()
-                    .map(|t| self.generate_type(t, indent, type_refs))
-                    .collect();
-                format!("z.union([{}])", type_strings.join(", "))
-            }
-            SchemaType::Object(obj) => {
-                // Check if this object has a type reference
-                let obj_key = format!("{:?}", obj);
-                if let Some(type_name) = type_refs.get(&obj_key) {
-                    format!("{}Schema", type_name)
-                } else {
-                    self.generate_inline_object(obj, indent, type_refs)
-                }
-            }
-        }
-    }
-
-    fn generate_inline_object(
-        &self,
-        obj: &ObjectType,
-        indent: &str,
-        type_refs: &HashMap<String, String>,
-    ) -> String {
-        if obj.fields.is_empty() {
-            return "z.record(z.unknown())".to_string();
-        }
-
-        let inner_indent = format!("{}  ", indent);
-        let mut lines = vec!["z.object({".to_string()];
-
-        for field in &obj.fields {
-            let field_name = self.format_field_name(&field.name);
-            let mut field_type = self.generate_type(&field.field_type, &inner_indent, type_refs);
-            if field.optional {
-                field_type = format!("{}.optional()", field_type);
-            }
-            lines.push(format!("{}{}: {},", inner_indent, field_name, field_type));
-        }
-
-        lines.push(format!("{}}})", indent));
-        lines.join("\n")
-    }
-
     fn generate_schema(
         &self,
         name: &str,
         obj: &ObjectType,
         indent: &str,
         type_refs: &HashMap<String, String>,
+        strict_mode: bool,
     ) -> String {
         let schema_name = format!("{}Schema", name);
         let inner_indent = format!("{}  ", indent);
         let mut lines = vec![format!("const {} = z.object({{", schema_name)];
 
         for field in &obj.fields {
-            let field_name = self.format_field_name(&field.name);
-            let mut field_type = self.generate_type(&field.field_type, &inner_indent, type_refs);
+            let field_name = format_field_name(&field.name);
+            let mut field_type = generate_type(&field.field_type, &inner_indent, type_refs);
             if field.optional {
                 field_type = format!("{}.optional()", field_type);
             }
             lines.push(format!("{}{}: {},", inner_indent, field_name, field_type));
         }
 
-        lines.push("});".to_string());
+        let strict_suffix = if strict_mode { ".strict()" } else { "" };
+        lines.push(format!("}}){};\n", strict_suffix));
         lines.join("\n")
-    }
-
-    fn format_field_name(&self, name: &str) -> String {
-        let sanitized = sanitize_identifier(name);
-        if name != sanitized || name.contains('-') || name.contains(' ') {
-            format!("\"{}\"", name)
-        } else {
-            name.to_string()
-        }
     }
 
     fn build_type_refs(&self, nested_types: &[NestedType]) -> HashMap<String, String> {
@@ -137,7 +64,6 @@ impl Generator for ZodGenerator {
             String::new(),
         ];
 
-        // Build type reference map
         let type_refs = if config.flat_mode {
             HashMap::new()
         } else {
@@ -146,25 +72,30 @@ impl Generator for ZodGenerator {
 
         let mut all_type_names: Vec<String> = Vec::new();
 
-        // Generate nested schemas first (if not flat mode)
         if !config.flat_mode && !schema.nested_types.is_empty() {
-            // Output in reverse order (deepest nested first)
             for nt in schema.nested_types.iter().rev() {
-                output.push(self.generate_schema(&nt.name, &nt.object, &config.indent, &type_refs));
-                output.push(String::new());
+                output.push(self.generate_schema(
+                    &nt.name,
+                    &nt.object,
+                    &config.indent,
+                    &type_refs,
+                    config.zod_strict_objects,
+                ));
                 all_type_names.push(nt.name.clone());
             }
         }
 
-        // Generate root schema
         if let SchemaType::Object(obj) = &schema.root_type {
-            output.push(self.generate_schema(&schema.name, obj, &config.indent, &type_refs));
+            output.push(self.generate_schema(
+                &schema.name,
+                obj,
+                &config.indent,
+                &type_refs,
+                config.zod_strict_objects,
+            ));
             all_type_names.push(schema.name.clone());
         }
 
-        output.push(String::new());
-
-        // Generate type aliases
         for name in &all_type_names {
             output.push(format!(
                 "type {} = z.infer<typeof {}Schema>;",
@@ -174,7 +105,6 @@ impl Generator for ZodGenerator {
 
         output.push(String::new());
 
-        // Generate exports
         let schema_exports: Vec<String> =
             all_type_names.iter().map(|n| format!("{}Schema", n)).collect();
         output.push(format!("export {{ {} }};", schema_exports.join(", ")));
