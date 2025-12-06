@@ -1,0 +1,29 @@
+[package]
+name = "mold-cli"
+version = "0.1.0"
+edition = "2021"
+description = "JSON to TypeScript/Zod/Prisma generator CLI"
+license = "MIT"
+repository = "https://github.com/pumarogie/mold"
+homepage = "https://github.com/pumarogie/mold"
+keywords = ["json", "typescript", "zod", "prisma", "codegen"]
+categories = ["command-line-utilities", "development-tools"]
+authors = ["Phillips Uwumarogie uwumarogiephillips@gmail.com"]
+readme = "README.md"
+
+[[bin]]
+name = "mold"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+thiserror = "1"
+convert_case = "0.6"
+colored = "2"
+
+[dev-dependencies]
+pretty_assertions = "1"
+tempfile = "3"

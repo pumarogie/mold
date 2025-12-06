@@ -1,0 +1,16 @@
+{
+  "id": 1,
+  "name": "John Doe",
+  "email": "john@example.com",
+  "active": true,
+  "score": 98.5,
+  "tags": ["admin", "user"],
+  "profile": {
+    "bio": "Software engineer",
+    "avatar": "https://example.com/avatar.png"
+  },
+  "settings": {
+    "theme": "dark",
+    "notifications": true
+  }
+}
