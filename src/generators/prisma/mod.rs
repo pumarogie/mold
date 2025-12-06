@@ -1,7 +1,12 @@
+mod relations;
+mod types;
+
 use crate::generators::{Generator, GeneratorConfig};
 use crate::types::{NestedType, ObjectType, Schema, SchemaType};
-use crate::utils::{is_prisma_reserved, sanitize_identifier, to_pascal_case};
 use anyhow::Result;
+use std::collections::HashMap;
+
+use relations::{format_model_name, generate_field};
 
 pub struct PrismaGenerator;
 
@@ -10,42 +15,24 @@ impl PrismaGenerator {
         Self
     }
 
-    fn generate_prisma_type(&self, schema_type: &SchemaType) -> Option<String> {
-        match schema_type {
-            SchemaType::String => Some("String".to_string()),
-            SchemaType::Number => Some("Float".to_string()),
-            SchemaType::Integer => Some("Int".to_string()),
-            SchemaType::Boolean => Some("Boolean".to_string()),
-            SchemaType::Array(inner) => {
-                // Prisma only supports arrays of scalar types
-                match inner.as_ref() {
-                    SchemaType::String => Some("String[]".to_string()),
-                    SchemaType::Integer => Some("Int[]".to_string()),
-                    SchemaType::Number => Some("Float[]".to_string()),
-                    SchemaType::Boolean => Some("Boolean[]".to_string()),
-                    _ => None, // Arrays of objects need relations
-                }
-            }
-            SchemaType::Null => None, // Prisma doesn't have null type
-            SchemaType::Optional(inner) => {
-                self.generate_prisma_type(inner).map(|t| format!("{}?", t))
-            }
-            SchemaType::Any | SchemaType::Union(_) => Some("Json".to_string()), // Use Json for complex types
-            SchemaType::Object(_) => None, // Objects need to be separate models
-        }
-    }
-
-    fn generate_model(&self, name: &str, obj: &ObjectType, indent: &str) -> String {
-        let model_name = self.format_model_name(name);
+    fn generate_model(
+        &self,
+        name: &str,
+        obj: &ObjectType,
+        indent: &str,
+        type_refs: &HashMap<String, String>,
+        generate_relations: bool,
+    ) -> String {
+        let model_name = format_model_name(name);
         let mut lines = vec![format!("model {} {{", model_name)];
 
-        // Add id field
         lines.push(format!("{}id Int @id @default(autoincrement())", indent));
 
-        // Add regular fields
         for field in &obj.fields {
-            if let Some(field_str) = self.generate_field(field, indent) {
-                lines.push(field_str);
+            if let Some(field_lines) = generate_field(field, indent, type_refs, generate_relations) {
+                for line in field_lines {
+                    lines.push(line);
+                }
             }
         }
 
@@ -53,52 +40,26 @@ impl PrismaGenerator {
         lines.join("\n")
     }
 
-    fn generate_field(&self, field: &crate::types::Field, indent: &str) -> Option<String> {
-        let field_name = self.format_field_name(&field.name);
-
-        // Handle object types (need relations)
-        if let SchemaType::Object(_) = &field.field_type {
-            // Skip - these need to be handled as relations
-            return None;
+    fn build_type_refs(&self, nested_types: &[NestedType]) -> HashMap<String, String> {
+        let mut refs = HashMap::new();
+        for nt in nested_types {
+            let key = format!("{:?}", nt.object);
+            refs.insert(key, nt.name.clone());
         }
-
-        let prisma_type = self.generate_prisma_type(&field.field_type)?;
-        let optional = if field.optional { "?" } else { "" };
-
-        Some(format!(
-            "{}{} {}{}",
-            indent,
-            field_name,
-            prisma_type,
-            if optional.is_empty() { "" } else { optional }
-        ))
+        refs
     }
 
-    fn format_field_name(&self, name: &str) -> String {
-        let sanitized = sanitize_identifier(name);
-        // Prisma field names must be valid identifiers
-        if is_prisma_reserved(&sanitized) {
-            format!("{}_", sanitized)
-        } else {
-            sanitized
-        }
-    }
-
-    fn format_model_name(&self, name: &str) -> String {
-        let pascal = to_pascal_case(name);
-        if is_prisma_reserved(&pascal) {
-            format!("{}Model", pascal)
-        } else {
-            pascal
-        }
-    }
-
-    fn generate_nested_models(&self, nested_types: &[NestedType], indent: &str) -> Vec<String> {
-        // Output deepest nested first (reversed)
+    fn generate_nested_models(
+        &self,
+        nested_types: &[NestedType],
+        indent: &str,
+        type_refs: &HashMap<String, String>,
+        generate_relations: bool,
+    ) -> Vec<String> {
         nested_types
             .iter()
             .rev()
-            .map(|nt| self.generate_model(&nt.name, &nt.object, indent))
+            .map(|nt| self.generate_model(&nt.name, &nt.object, indent, type_refs, generate_relations))
             .collect()
     }
 }
@@ -113,18 +74,33 @@ impl Generator for PrismaGenerator {
     fn generate(&self, schema: &Schema, config: &GeneratorConfig) -> Result<String> {
         let mut output = vec!["// Generated by mold".to_string(), String::new()];
 
-        // Generate nested models first (if not flat mode)
+        let type_refs = if config.flat_mode {
+            HashMap::new()
+        } else {
+            self.build_type_refs(&schema.nested_types)
+        };
+
         if !config.flat_mode && !schema.nested_types.is_empty() {
-            let nested = self.generate_nested_models(&schema.nested_types, &config.indent);
+            let nested = self.generate_nested_models(
+                &schema.nested_types,
+                &config.indent,
+                &type_refs,
+                config.prisma_generate_relations,
+            );
             for model in nested {
                 output.push(model);
                 output.push(String::new());
             }
         }
 
-        // Generate root model
         if let SchemaType::Object(obj) = &schema.root_type {
-            output.push(self.generate_model(&schema.name, obj, &config.indent));
+            output.push(self.generate_model(
+                &schema.name,
+                obj,
+                &config.indent,
+                &type_refs,
+                config.prisma_generate_relations,
+            ));
         }
 
         Ok(output.join("\n"))
@@ -196,7 +172,6 @@ mod tests {
 
         let output = gen.generate(&schema, &config).unwrap();
 
-        // Should rename the reserved field
         assert!(output.contains("model_ String"));
     }
 }

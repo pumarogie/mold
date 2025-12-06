@@ -8,7 +8,7 @@ repository = "https://github.com/pumarogie/mold"
 homepage = "https://github.com/pumarogie/mold"
 keywords = ["json", "typescript", "zod", "prisma", "codegen"]
 categories = ["command-line-utilities", "development-tools"]
-authors = ["Phillips Uwumarogie uwumarogiephillips@gmail.com"]
+authors = ["Phillips Uwumarogie <uwumarogiephillips@gmail.com>"]
 readme = "README.md"
 
 [[bin]]
@@ -23,6 +23,8 @@ anyhow = "1"
 thiserror = "1"
 convert_case = "0.6"
 colored = "2"
+regex = "1"
+lazy_static = "1.4"
 
 [dev-dependencies]
 pretty_assertions = "1"
