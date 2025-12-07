@@ -1,6 +1,6 @@
 # mold
 
-A blazing fast CLI tool that generates **TypeScript types**, **Zod schemas**, and **Prisma models** from JSON.
+A blazingly fast CLI tool that generates **TypeScript types**, **Zod schemas**, and **Prisma models** from JSON.
 
 ## Installation
 
