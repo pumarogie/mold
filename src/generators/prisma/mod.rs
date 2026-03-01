@@ -174,4 +174,126 @@ mod tests {
 
         assert!(output.contains("model_ String"));
     }
+
+    #[test]
+    fn test_datetime_field() {
+        let gen = PrismaGenerator::new();
+        let obj = ObjectType::new(vec![Field::new("createdAt", SchemaType::DateTime)]);
+        let schema = Schema::new("Post", SchemaType::Object(obj));
+        let config = GeneratorConfig::default();
+
+        let output = gen.generate(&schema, &config).unwrap();
+
+        assert!(output.contains("createdAt DateTime"));
+        assert!(output.contains("@default(now())"));
+    }
+
+    #[test]
+    fn test_updated_at_field() {
+        let gen = PrismaGenerator::new();
+        let obj = ObjectType::new(vec![Field::new("updatedAt", SchemaType::DateTime)]);
+        let schema = Schema::new("Post", SchemaType::Object(obj));
+        let config = GeneratorConfig::default();
+
+        let output = gen.generate(&schema, &config).unwrap();
+
+        assert!(output.contains("updatedAt DateTime"));
+        assert!(output.contains("@updatedAt"));
+    }
+
+    #[test]
+    fn test_uuid_id_field_gets_default() {
+        let gen = PrismaGenerator::new();
+        let obj = ObjectType::new(vec![Field::new("id", SchemaType::Uuid)]);
+        let schema = Schema::new("User", SchemaType::Object(obj));
+        let config = GeneratorConfig::default();
+
+        let output = gen.generate(&schema, &config).unwrap();
+
+        // The field named "id" with Uuid type should get @default(uuid())
+        assert!(output.contains("@default(uuid())"));
+    }
+
+    #[test]
+    fn test_optional_prisma_field() {
+        let gen = PrismaGenerator::new();
+        let obj = ObjectType::new(vec![
+            Field::new("name", SchemaType::String),
+            Field::new("bio", SchemaType::String).optional(),
+        ]);
+        let schema = Schema::new("User", SchemaType::Object(obj));
+        let config = GeneratorConfig::default();
+
+        let output = gen.generate(&schema, &config).unwrap();
+
+        assert!(output.contains("name String"));
+        assert!(output.contains("bio String?"));
+    }
+
+    #[test]
+    fn test_nested_model_generation() {
+        let gen = PrismaGenerator::new();
+        let address_obj = ObjectType::new(vec![
+            Field::new("street", SchemaType::String),
+            Field::new("city", SchemaType::String),
+        ]);
+        let root_obj = ObjectType::new(vec![
+            Field::new("name", SchemaType::String),
+            Field::new("address", SchemaType::Object(address_obj.clone())),
+        ]);
+        let schema = Schema::new("User", SchemaType::Object(root_obj))
+            .with_nested_types(vec![NestedType::new("UserAddress", address_obj)]);
+        let config = GeneratorConfig::default();
+
+        let output = gen.generate(&schema, &config).unwrap();
+
+        assert!(output.contains("model UserAddress {"));
+        assert!(output.contains("model User {"));
+    }
+
+    #[test]
+    fn test_boolean_array_field() {
+        let gen = PrismaGenerator::new();
+        let obj = ObjectType::new(vec![Field::new(
+            "flags",
+            SchemaType::Array(Box::new(SchemaType::Boolean)),
+        )]);
+        let schema = Schema::new("Test", SchemaType::Object(obj));
+        let config = GeneratorConfig::default();
+
+        let output = gen.generate(&schema, &config).unwrap();
+
+        assert!(output.contains("flags Boolean[]"));
+    }
+
+    #[test]
+    fn test_file_extension() {
+        let gen = PrismaGenerator::new();
+        assert_eq!(gen.file_extension(), "prisma");
+    }
+
+    #[test]
+    fn test_always_has_autoincrement_id() {
+        let gen = PrismaGenerator::new();
+        let obj = ObjectType::new(vec![Field::new("name", SchemaType::String)]);
+        let schema = Schema::new("Test", SchemaType::Object(obj));
+        let config = GeneratorConfig::default();
+
+        let output = gen.generate(&schema, &config).unwrap();
+
+        assert!(output.contains("id Int @id @default(autoincrement())"));
+    }
+
+    #[test]
+    fn test_pascal_case_model_name() {
+        let gen = PrismaGenerator::new();
+        let obj = ObjectType::new(vec![Field::new("name", SchemaType::String)]);
+        // "model" gets PascalCased to "Model" by format_model_name
+        let schema = Schema::new("model", SchemaType::Object(obj));
+        let config = GeneratorConfig::default();
+
+        let output = gen.generate(&schema, &config).unwrap();
+
+        assert!(output.contains("model Model {"));
+    }
 }

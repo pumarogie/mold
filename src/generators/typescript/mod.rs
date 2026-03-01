@@ -173,4 +173,138 @@ mod tests {
 
         assert!(output.contains("Record<string, unknown>"));
     }
+
+    #[test]
+    fn test_export_keyword() {
+        let gen = TypeScriptGenerator::new();
+        let obj = ObjectType::new(vec![Field::new("name", SchemaType::String)]);
+        let schema = Schema::new("User", SchemaType::Object(obj));
+        let mut config = GeneratorConfig::default();
+        config.ts_export_interfaces = true;
+
+        let output = gen.generate(&schema, &config).unwrap();
+
+        assert!(output.contains("export interface User {"));
+    }
+
+    #[test]
+    fn test_no_export_by_default() {
+        let gen = TypeScriptGenerator::new();
+        let obj = ObjectType::new(vec![Field::new("name", SchemaType::String)]);
+        let schema = Schema::new("User", SchemaType::Object(obj));
+        let config = GeneratorConfig::default();
+
+        let output = gen.generate(&schema, &config).unwrap();
+
+        assert!(output.contains("interface User {"));
+        assert!(!output.contains("export interface"));
+    }
+
+    #[test]
+    fn test_readonly_fields() {
+        let gen = TypeScriptGenerator::new();
+        let obj = ObjectType::new(vec![
+            Field::new("id", SchemaType::Integer),
+            Field::new("name", SchemaType::String),
+        ]);
+        let schema = Schema::new("User", SchemaType::Object(obj));
+        let mut config = GeneratorConfig::default();
+        config.ts_readonly_fields = true;
+
+        let output = gen.generate(&schema, &config).unwrap();
+
+        assert!(output.contains("readonly id: number"));
+        assert!(output.contains("readonly name: string"));
+    }
+
+    #[test]
+    fn test_optional_field() {
+        let gen = TypeScriptGenerator::new();
+        let obj = ObjectType::new(vec![
+            Field::new("name", SchemaType::String),
+            Field::new("bio", SchemaType::String).optional(),
+        ]);
+        let schema = Schema::new("User", SchemaType::Object(obj));
+        let config = GeneratorConfig::default();
+
+        let output = gen.generate(&schema, &config).unwrap();
+
+        assert!(output.contains("name: string"));
+        assert!(output.contains("bio?: string"));
+    }
+
+    #[test]
+    fn test_nested_type_references() {
+        let gen = TypeScriptGenerator::new();
+        let address_obj = ObjectType::new(vec![
+            Field::new("street", SchemaType::String),
+            Field::new("city", SchemaType::String),
+        ]);
+        let root_obj = ObjectType::new(vec![
+            Field::new("name", SchemaType::String),
+            Field::new("address", SchemaType::Object(address_obj.clone())),
+        ]);
+        let schema = Schema::new("User", SchemaType::Object(root_obj))
+            .with_nested_types(vec![NestedType::new("UserAddress", address_obj)]);
+        let config = GeneratorConfig::default();
+
+        let output = gen.generate(&schema, &config).unwrap();
+
+        assert!(output.contains("interface UserAddress {"));
+        assert!(output.contains("interface User {"));
+        assert!(output.contains("street: string"));
+        assert!(output.contains("city: string"));
+    }
+
+    #[test]
+    fn test_semantic_types_map_to_string() {
+        let gen = TypeScriptGenerator::new();
+        let obj = ObjectType::new(vec![
+            Field::new("id", SchemaType::Uuid),
+            Field::new("email", SchemaType::Email),
+            Field::new("website", SchemaType::Url),
+            Field::new("created", SchemaType::DateTime),
+            Field::new("birthday", SchemaType::Date),
+        ]);
+        let schema = Schema::new("User", SchemaType::Object(obj));
+        let config = GeneratorConfig::default();
+
+        let output = gen.generate(&schema, &config).unwrap();
+
+        assert!(output.contains("id: string"));
+        assert!(output.contains("email: string"));
+        assert!(output.contains("website: string"));
+        assert!(output.contains("created: string"));
+        assert!(output.contains("birthday: string"));
+    }
+
+    #[test]
+    fn test_null_type() {
+        let gen = TypeScriptGenerator::new();
+        let obj = ObjectType::new(vec![Field::new("value", SchemaType::Null)]);
+        let schema = Schema::new("Test", SchemaType::Object(obj));
+        let config = GeneratorConfig::default();
+
+        let output = gen.generate(&schema, &config).unwrap();
+
+        assert!(output.contains("value: null"));
+    }
+
+    #[test]
+    fn test_file_extension() {
+        let gen = TypeScriptGenerator::new();
+        assert_eq!(gen.file_extension(), "ts");
+    }
+
+    #[test]
+    fn test_generated_header() {
+        let gen = TypeScriptGenerator::new();
+        let obj = ObjectType::new(vec![Field::new("name", SchemaType::String)]);
+        let schema = Schema::new("Test", SchemaType::Object(obj));
+        let config = GeneratorConfig::default();
+
+        let output = gen.generate(&schema, &config).unwrap();
+
+        assert!(output.starts_with("// Generated by mold"));
+    }
 }

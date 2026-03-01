@@ -14,6 +14,6 @@ pub enum MoldError {
     #[error("Failed to write output: {0}")]
     WriteError(String),
 
-    #[error("No output format specified. Use --ts, --zod, --prisma, or --all")]
-    NoOutputFormat,
+    #[error("No output format specified\n  Try: mold {file} --ts\n  Or use --all for all formats")]
+    NoOutputFormat { file: String },
 }
