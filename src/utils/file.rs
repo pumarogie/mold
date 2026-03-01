@@ -26,6 +26,36 @@ pub fn get_file_stem(path: &Path) -> String {
         .to_string()
 }
 
+/// Suggest similar .json files in the same directory when a file is not found
+pub fn suggest_similar_files(path: &Path) -> String {
+    let parent = path.parent().unwrap_or(Path::new("."));
+    let entries: Vec<String> = fs::read_dir(parent)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.path()
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext == "json")
+                .unwrap_or(false)
+        })
+        .filter_map(|e| e.file_name().into_string().ok())
+        .collect();
+
+    if entries.is_empty() {
+        String::new()
+    } else if entries.len() <= 5 {
+        format!("\n  Available .json files: {}", entries.join(", "))
+    } else {
+        format!(
+            "\n  Available .json files: {}, ... ({} total)",
+            entries[..5].join(", "),
+            entries.len()
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
